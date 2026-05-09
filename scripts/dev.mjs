@@ -8,12 +8,18 @@ const DEBOUNCE_MS = 300;
 let timeout = null;
 
 function build(trigger) {
-  console.log(`\x1b[36m[dev]\x1b[0m Change detected in \x1b[33m${trigger}\x1b[0m`);
+  console.log(
+    `\x1b[36m[dev]\x1b[0m Change detected in \x1b[33m${trigger}\x1b[0m`,
+  );
   try {
     execSync("pnpm run build", { stdio: "ignore" });
-    console.log(`\x1b[32m[dev]\x1b[0m Build succeeded. Watching for changes...\n`);
+    console.log(
+      `\x1b[32m[dev]\x1b[0m Build succeeded. Watching for changes...\n`,
+    );
   } catch {
-    console.error(`\x1b[31m[dev]\x1b[0m Build failed. Watching for changes...\n`);
+    console.error(
+      `\x1b[31m[dev]\x1b[0m Build failed. Watching for changes...\n`,
+    );
   }
 }
 
@@ -25,7 +31,10 @@ build("startup");
 watch(SRC_DIR, { recursive: true }, (_event, filename) => {
   if (!filename) return;
   clearTimeout(timeout);
-  timeout = setTimeout(() => build(relative(".", resolve(SRC_DIR, filename))), DEBOUNCE_MS);
+  timeout = setTimeout(
+    () => build(relative(".", resolve(SRC_DIR, filename))),
+    DEBOUNCE_MS,
+  );
 });
 
 // Watch package.json for metadata changes
@@ -35,4 +44,6 @@ watch(PKG_PATH, () => {
   timeout = setTimeout(() => build("package.json"), DEBOUNCE_MS);
 });
 
-console.log(`\x1b[36m[dev]\x1b[0m Watching \x1b[33msrc/\x1b[0m and \x1b[33mpackage.json\x1b[0m for changes...\n`);
+console.log(
+  `\x1b[36m[dev]\x1b[0m Watching \x1b[33msrc/\x1b[0m and \x1b[33mpackage.json\x1b[0m for changes...\n`,
+);
