@@ -1,0 +1,7 @@
+dist/
+release/
+dev/
+assets/
+*.md
+package.json
+pnpm-lock.yaml
