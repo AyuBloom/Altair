@@ -10,9 +10,10 @@
     "release": "./release",
     "fileName": "Altair",
     "meta": {
-      "name": "Altair",
+      "name": "Altair - zombs.io",
       "namespace": "http://tampermonkey.net/",
       "homepage": "https://github.com/AyuBloom/Altair",
+      "icon": "https://static.wikia.nocookie.net/iowiro/images/1/1c/Altair_%28feat._%2AspiLa%2A%29.jpg/revision/latest",
       "match": "*://zombs.io",
       "grant": "none",
       "require": []
@@ -22,6 +23,7 @@
     "userscript-builder": "^0.4.0"
   },
   "scripts": {
+    "dev": "node scripts/dev.mjs",
     "build": "userscript-builder --mode dev",
     "release:bugfix": "userscript-builder --mode bugfix",
     "release:minor": "userscript-builder --mode minor",
