@@ -1,8 +1,5 @@
 ![Banner](/assets/altair_banner_small.png)
 
-# Altair
-The all-around script for everyone
-
 ## Development
 
 ### Prerequisites
