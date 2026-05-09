@@ -1,0 +1,31 @@
+{
+  "name": "altair",
+  "version": "0.0.0",
+  "description": "One all-around script for everyone",
+  "author": "AyuBloom",
+  "license": "GPL-3.0-only",
+  "userscript": {
+    "entry": "./src/index.js",
+    "dev": "./dist",
+    "release": "./release",
+    "fileName": "Altair",
+    "meta": {
+      "name": "Altair",
+      "namespace": "http://tampermonkey.net/",
+      "homepage": "https://github.com/AyuBloom/Altair",
+      "match": "*://zombs.io",
+      "grant": "none",
+      "require": []
+    }
+  },
+  "devDependencies": {
+    "userscript-builder": "^0.4.0"
+  },
+  "scripts": {
+    "build": "userscript-builder --mode dev",
+    "release:bugfix": "userscript-builder --mode bugfix",
+    "release:minor": "userscript-builder --mode minor",
+    "release:major": "userscript-builder --mode major"
+  },
+  "packageManager": "pnpm@10.11.1+sha512.e519b9f7639869dc8d5c3c5dfef73b3f091094b0a006d7317353c72b124e80e1afd429732e28705ad6bfa1ee879c1fce46c128ccebd3192101f43dd67c667912"
+}

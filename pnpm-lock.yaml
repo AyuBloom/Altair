@@ -1,0 +1,31 @@
+lockfileVersion: '9.0'
+
+settings:
+  autoInstallPeers: true
+  excludeLinksFromLockfile: false
+
+importers:
+
+  .:
+    devDependencies:
+      userscript-builder:
+        specifier: ^0.4.0
+        version: 0.4.0
+
+packages:
+
+  minimist@1.2.8:
+    resolution: {integrity: sha512-2yyAR8qBkN3YuheJanUpWC5U3bb5osDywNB8RzDVlDwDHbocAJveqqj1u8+SVD7jkWT4yvsHCpWqqWqAxb0zCA==}
+
+  userscript-builder@0.4.0:
+    resolution: {integrity: sha512-OCdGK15GbERqT/E2EOQaEOsji1Qm4slRBaT+DcHYMTGpmmGT6lXY6SvDD6EYgp63CXYNPtRV8mT0jiF576zpNw==}
+    engines: {node: '>=6.11.5'}
+    hasBin: true
+
+snapshots:
+
+  minimist@1.2.8: {}
+
+  userscript-builder@0.4.0:
+    dependencies:
+      minimist: 1.2.8
