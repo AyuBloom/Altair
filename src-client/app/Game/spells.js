@@ -1,6 +1,6 @@
 module.exports = {
-    HealTowersSpell: {
-        name: "Heal Towers",
-        tiers: 1
-    }
+  HealTowersSpell: {
+    name: "Heal Towers",
+    tiers: 1,
+  },
 };

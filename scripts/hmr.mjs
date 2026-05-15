@@ -8,9 +8,10 @@ const DEBOUNCE_MS = 300;
 let timeout = null;
 
 function build(trigger) {
-  if (trigger !== "startup") console.log(
-    `\x1b[36m[dev]\x1b[0m Change detected in \x1b[33m${trigger}\x1b[0m`,
-  );
+  if (trigger !== "startup")
+    console.log(
+      `\x1b[36m[dev]\x1b[0m Change detected in \x1b[33m${trigger}\x1b[0m`,
+    );
   try {
     execSync("pnpm run build", { stdio: "ignore" });
     console.log(
