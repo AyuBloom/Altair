@@ -48,6 +48,7 @@
     "xss": "^1.0.15"
   },
   "scripts": {
+    "build": "webpack --config webpack.prod.js && userscript-builder --mode dev",
     "script:dev": "node scripts/hmr.mjs",
     "script:build": "userscript-builder --mode dev",
     "client:dev": "webpack serve",
