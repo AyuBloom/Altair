@@ -22,3 +22,6 @@ Altair is both a userscript and a custom client for ZOMBS.io that aims to revolu
 1. Run `pnpm run client:dev` to start a dev server.
 2. Open [http://localhost:727](http://localhost:727) in your browser.
 3. Done! Now you can start developing the client with live reload.
+
+## Credits
+This script will not be possible without the tremendous help from AstralCat, who made the foundation for Altair's client bundling.
