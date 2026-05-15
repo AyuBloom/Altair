@@ -1,0 +1,17 @@
+{
+  "presets": [
+    "@babel/preset-env"
+  ],
+  "plugins": [
+    [
+      "@babel/plugin-transform-modules-commonjs",
+      {
+        "allowTopLevelThis": true,
+        "importInterop": "none"
+      }
+    ]
+  ],
+  "targets": {
+    "chrome": "138"
+  }
+}

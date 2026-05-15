@@ -2,13 +2,13 @@ import { watch } from "fs";
 import { execSync } from "child_process";
 import { resolve, relative } from "path";
 
-const SRC_DIR = resolve("src");
+const SRC_ALTAIR_DIR = resolve("src-altair");
 const DEBOUNCE_MS = 300;
 
 let timeout = null;
 
 function build(trigger) {
-  console.log(
+  if (trigger !== "startup") console.log(
     `\x1b[36m[dev]\x1b[0m Change detected in \x1b[33m${trigger}\x1b[0m`,
   );
   try {
@@ -27,12 +27,12 @@ function build(trigger) {
 console.log(`\x1b[36m[dev]\x1b[0m Running initial build...\n`);
 build("startup");
 
-// Watch src/ recursively
-watch(SRC_DIR, { recursive: true }, (_event, filename) => {
+// Watch src-altair/ recursively
+watch(SRC_ALTAIR_DIR, { recursive: true }, (_event, filename) => {
   if (!filename) return;
   clearTimeout(timeout);
   timeout = setTimeout(
-    () => build(relative(".", resolve(SRC_DIR, filename))),
+    () => build(relative(".", resolve(SRC_ALTAIR_DIR, filename))),
     DEBOUNCE_MS,
   );
 });
@@ -45,5 +45,5 @@ watch(PKG_PATH, () => {
 });
 
 console.log(
-  `\x1b[36m[dev]\x1b[0m Watching \x1b[33msrc/\x1b[0m and \x1b[33mpackage.json\x1b[0m for changes...\n`,
+  `\x1b[36m[dev]\x1b[0m Watching \x1b[33msrc-altair/\x1b[0m and \x1b[33mpackage.json\x1b[0m for changes...\n`,
 );
