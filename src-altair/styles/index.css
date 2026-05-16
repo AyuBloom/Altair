@@ -1,0 +1,8 @@
+.hud-menu-shop {
+  padding: 20px;
+  width: 700px;
+  height: 470px;
+  margin: unset;
+  top: calc(50% - 235px);
+  left: calc(50% - 350px);
+}
