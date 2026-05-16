@@ -137,7 +137,9 @@ function createOverridePlugin(rootDir) {
       if (jsOverrideCount === 0 && !hasStyles) return;
 
       if (jsOverrideCount > 0) {
-        console.log(`[AltairOverrides] Found ${jsOverrideCount} JS override(s).`);
+        console.log(
+          `[AltairOverrides] Found ${jsOverrideCount} JS override(s).`,
+        );
 
         // Loader 1: Transform override files (game → _Game.currentGame)
         compiler.options.module.rules.push({
@@ -175,7 +177,9 @@ function createOverridePlugin(rootDir) {
 
       // Loader 3: Merge altair CSS into the original app.css
       if (hasStyles) {
-        console.log(`[AltairOverrides] Found CSS override: src-altair/styles/index.css`);
+        console.log(
+          `[AltairOverrides] Found CSS override: src-altair/styles/index.css`,
+        );
         compiler.options.module.rules.push({
           test: /app\.css$/,
           include: path.dirname(clientCssPath),
@@ -202,9 +206,12 @@ function createOverridePlugin(rootDir) {
 function altairLoader(source) {
   const options = this.getOptions();
 
-  if (options.mode === "transform") return transformOverrideSource.call(this, source, options);
-  if (options.mode === "merge") return mergeOverrideClass.call(this, source, options);
-  if (options.mode === "css") return mergeOverrideCss.call(this, source, options);
+  if (options.mode === "transform")
+    return transformOverrideSource.call(this, source, options);
+  if (options.mode === "merge")
+    return mergeOverrideClass.call(this, source, options);
+  if (options.mode === "css")
+    return mergeOverrideCss.call(this, source, options);
 
   return source;
 }
@@ -399,16 +406,13 @@ function mergeOverrideClass(source, options) {
     // Replace from the export statement start to the class keyword
     const exportStart = info.exportNode.start;
     const classKeywordIndex = source.indexOf("class", exportStart);
-    newSource =
-      source.slice(0, exportStart) + source.slice(classKeywordIndex);
+    newSource = source.slice(0, exportStart) + source.slice(classKeywordIndex);
   } else {
     // `export default Foo;` at the end → remove it
     const exportStart = info.exportNode.start;
     const exportEnd = info.exportNode.end;
     newSource =
-      source.slice(0, exportStart).trimEnd() +
-      "\n" +
-      source.slice(exportEnd);
+      source.slice(0, exportStart).trimEnd() + "\n" + source.slice(exportEnd);
   }
 
   // Normalise override path for import (forward slashes, no backslashes)
