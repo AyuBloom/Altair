@@ -15,12 +15,12 @@ function build(trigger) {
   const startTime = performance.now();
   try {
     execSync("pnpm run script:build", { stdio: "ignore" });
-    const duration = Math.round((performance.now() - startTime));
+    const duration = Math.round(performance.now() - startTime);
     console.log(
       `\x1b[32m[dev]\x1b[0m Build succeeded in ${duration}s. Watching for changes...\n`,
     );
   } catch {
-    const duration = Math.round((performance.now() - startTime));
+    const duration = Math.round(performance.now() - startTime);
     console.error(
       `\x1b[31m[dev]\x1b[0m Build failed after ${duration}s. Watching for changes...\n`,
     );

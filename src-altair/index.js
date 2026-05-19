@@ -9,7 +9,7 @@ import "styles/index.js";
  */
 
 /**
- * cute console msg :) 
+ * cute console msg :)
  */
 setTimeout(() => {
   console.clear();

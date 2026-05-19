@@ -88,7 +88,8 @@ function findDefaultExportClass(ast) {
 // Macro extraction — scans source files for all macro annotations
 // ---------------------------------------------------------------------------
 
-const MACRO_PATTERN = /^[\s*]*@(override|replace|script|options|helper|init)(?:\s+(.+?))?\s*$/;
+const MACRO_PATTERN =
+  /^[\s*]*@(override|replace|script|options|helper|init)(?:\s+(.+?))?\s*$/;
 
 /**
  * Parse a single source file and extract all macro-annotated code.
@@ -114,7 +115,13 @@ function extractMacrosFromSource(source, filePath) {
     return { overrides: [], scripts: [], options: [], helpers: [], inits: [] };
   }
 
-  const result = { overrides: [], scripts: [], options: [], helpers: [], inits: [] };
+  const result = {
+    overrides: [],
+    scripts: [],
+    options: [],
+    helpers: [],
+    inits: [],
+  };
 
   for (const node of ast.program.body) {
     if (!node.leadingComments || node.leadingComments.length === 0) continue;
@@ -129,7 +136,14 @@ function extractMacrosFromSource(source, filePath) {
       switch (macroType) {
         case "override":
         case "replace":
-          extractOverrideMacro(node, macroType, macroArg, source, filePath, result);
+          extractOverrideMacro(
+            node,
+            macroType,
+            macroArg,
+            source,
+            filePath,
+            result,
+          );
           break;
         case "script":
           extractScriptMacro(node, source, filePath, result);
@@ -150,13 +164,27 @@ function extractMacrosFromSource(source, filePath) {
   return result;
 }
 
-function extractOverrideMacro(node, macroType, componentPath, source, filePath, result) {
+function extractOverrideMacro(
+  node,
+  macroType,
+  componentPath,
+  source,
+  filePath,
+  result,
+) {
   if (!componentPath) {
-    console.warn(`[macro] @${macroType} in ${path.basename(filePath)} missing component path — skipping`);
+    console.warn(
+      `[macro] @${macroType} in ${path.basename(filePath)} missing component path — skipping`,
+    );
     return;
   }
-  if (node.type !== "ExpressionStatement" || node.expression.type !== "AssignmentExpression") {
-    console.warn(`[macro] @${macroType} in ${path.basename(filePath)} is not followed by an assignment — skipping`);
+  if (
+    node.type !== "ExpressionStatement" ||
+    node.expression.type !== "AssignmentExpression"
+  ) {
+    console.warn(
+      `[macro] @${macroType} in ${path.basename(filePath)} is not followed by an assignment — skipping`,
+    );
     return;
   }
   const left = node.expression.left;
@@ -165,7 +193,9 @@ function extractOverrideMacro(node, macroType, componentPath, source, filePath, 
     methodName = left.property.name || left.property.value;
   }
   if (!methodName) {
-    console.warn(`[macro] @${macroType} in ${path.basename(filePath)}: could not extract method name — skipping`);
+    console.warn(
+      `[macro] @${macroType} in ${path.basename(filePath)}: could not extract method name — skipping`,
+    );
     return;
   }
   const rhs = node.expression.right;
@@ -180,8 +210,13 @@ function extractOverrideMacro(node, macroType, componentPath, source, filePath, 
 
 function extractScriptMacro(node, source, filePath, result) {
   // Expects: game.script.X = { ... };
-  if (node.type !== "ExpressionStatement" || node.expression.type !== "AssignmentExpression") {
-    console.warn(`[macro] @script in ${path.basename(filePath)} is not followed by an assignment — skipping`);
+  if (
+    node.type !== "ExpressionStatement" ||
+    node.expression.type !== "AssignmentExpression"
+  ) {
+    console.warn(
+      `[macro] @script in ${path.basename(filePath)} is not followed by an assignment — skipping`,
+    );
     return;
   }
   const left = node.expression.left;
@@ -191,7 +226,9 @@ function extractScriptMacro(node, source, filePath, result) {
     scriptName = left.property.name || left.property.value;
   }
   if (!scriptName) {
-    console.warn(`[macro] @script in ${path.basename(filePath)}: could not extract script name — skipping`);
+    console.warn(
+      `[macro] @script in ${path.basename(filePath)}: could not extract script name — skipping`,
+    );
     return;
   }
   const rhs = node.expression.right;
@@ -204,8 +241,13 @@ function extractScriptMacro(node, source, filePath, result) {
 
 function extractOptionsMacro(node, source, filePath, result) {
   // Expects: game.options.options = { ... };
-  if (node.type !== "ExpressionStatement" || node.expression.type !== "AssignmentExpression") {
-    console.warn(`[macro] @options in ${path.basename(filePath)} is not followed by an assignment — skipping`);
+  if (
+    node.type !== "ExpressionStatement" ||
+    node.expression.type !== "AssignmentExpression"
+  ) {
+    console.warn(
+      `[macro] @options in ${path.basename(filePath)} is not followed by an assignment — skipping`,
+    );
     return;
   }
   const rhs = node.expression.right;
@@ -238,7 +280,9 @@ function extractHelperMacro(node, source, filePath, result) {
   }
 
   if (!helperName || !helperSource) {
-    console.warn(`[macro] @helper in ${path.basename(filePath)}: could not extract helper — skipping`);
+    console.warn(
+      `[macro] @helper in ${path.basename(filePath)}: could not extract helper — skipping`,
+    );
     return;
   }
 
@@ -262,15 +306,26 @@ function extractInitMacro(node, source, filePath, result) {
  * Scan an entire directory recursively for macro annotations.
  */
 function extractAllMacros(dir) {
-  const all = { overrides: [], scripts: [], options: [], helpers: [], inits: [] };
+  const all = {
+    overrides: [],
+    scripts: [],
+    options: [],
+    helpers: [],
+    inits: [],
+  };
   const sourceFiles = new Set();
 
   for (const filePath of findJsFiles(dir)) {
     const source = fs.readFileSync(filePath, "utf8");
     const macros = extractMacrosFromSource(source, filePath);
 
-    const hasAny = macros.overrides.length + macros.scripts.length +
-      macros.options.length + macros.helpers.length + macros.inits.length > 0;
+    const hasAny =
+      macros.overrides.length +
+        macros.scripts.length +
+        macros.options.length +
+        macros.helpers.length +
+        macros.inits.length >
+      0;
     if (hasAny) sourceFiles.add(filePath);
 
     all.overrides.push(...macros.overrides);
@@ -325,13 +380,19 @@ function createOverridePlugin(rootDir) {
   }
 
   // Check if we have bootstrap macros (@script, @options, @helper, @init)
-  const hasBootstrap = macros.scripts.length > 0 || macros.options.length > 0 ||
-    macros.helpers.length > 0 || macros.inits.length > 0;
+  const hasBootstrap =
+    macros.scripts.length > 0 ||
+    macros.options.length > 0 ||
+    macros.helpers.length > 0 ||
+    macros.inits.length > 0;
 
   if (hasBootstrap) {
     // Add Game.js as a merge target for the bootstrap
     if (!overridesByBasename["Game.js"]) {
-      overridesByBasename["Game.js"] = { componentPath: "Engine/Game/Game", methods: [] };
+      overridesByBasename["Game.js"] = {
+        componentPath: "Engine/Game/Game",
+        methods: [],
+      };
     }
     overridesByBasename["Game.js"].bootstrap = {
       scripts: macros.scripts,
@@ -348,8 +409,9 @@ function createOverridePlugin(rootDir) {
 
   return {
     apply(compiler) {
-      const overrideCount = Array.from(macros.overridesByComponent.values())
-        .reduce((sum, arr) => sum + arr.length, 0);
+      const overrideCount = Array.from(
+        macros.overridesByComponent.values(),
+      ).reduce((sum, arr) => sum + arr.length, 0);
       const hasStyles = fs.existsSync(altairStylesPath);
       const hasMacros = overrideCount > 0 || hasBootstrap;
 
@@ -358,25 +420,38 @@ function createOverridePlugin(rootDir) {
       if (hasMacros) {
         // Log override macros
         if (overrideCount > 0) {
-          console.log(`[AltairOverrides] Found ${overrideCount} @override macro(s):`);
+          console.log(
+            `[AltairOverrides] Found ${overrideCount} @override macro(s):`,
+          );
           for (const [comp, methods] of macros.overridesByComponent) {
-            console.log(`  → ${comp}: ${methods.map((m) => m.methodName).join(", ")}`);
+            console.log(
+              `  → ${comp}: ${methods.map((m) => m.methodName).join(", ")}`,
+            );
           }
         }
 
         // Log bootstrap macros
         if (hasBootstrap) {
           const counts = [];
-          if (macros.scripts.length) counts.push(`${macros.scripts.length} @script`);
-          if (macros.options.length) counts.push(`${macros.options.length} @options`);
-          if (macros.helpers.length) counts.push(`${macros.helpers.length} @helper`);
+          if (macros.scripts.length)
+            counts.push(`${macros.scripts.length} @script`);
+          if (macros.options.length)
+            counts.push(`${macros.options.length} @options`);
+          if (macros.helpers.length)
+            counts.push(`${macros.helpers.length} @helper`);
           if (macros.inits.length) counts.push(`${macros.inits.length} @init`);
-          console.log(`[AltairOverrides] Found bootstrap macros: ${counts.join(", ")}`);
+          console.log(
+            `[AltairOverrides] Found bootstrap macros: ${counts.join(", ")}`,
+          );
           if (macros.scripts.length) {
-            console.log(`  → scripts: ${macros.scripts.map((s) => s.name).join(", ")}`);
+            console.log(
+              `  → scripts: ${macros.scripts.map((s) => s.name).join(", ")}`,
+            );
           }
           if (macros.helpers.length) {
-            console.log(`  → helpers: ${macros.helpers.map((h) => h.name).join(", ")}`);
+            console.log(
+              `  → helpers: ${macros.helpers.map((h) => h.name).join(", ")}`,
+            );
           }
         }
 
@@ -401,7 +476,9 @@ function createOverridePlugin(rootDir) {
 
       // Loader: Merge altair CSS into the original app.css
       if (hasStyles) {
-        console.log(`[AltairOverrides] Found CSS override: src-altair/styles/index.css`);
+        console.log(
+          `[AltairOverrides] Found CSS override: src-altair/styles/index.css`,
+        );
         compiler.options.module.rules.push({
           test: /app\.css$/,
           include: path.dirname(clientCssPath),
@@ -471,19 +548,26 @@ function macroMergeLoader(source, options) {
       ],
     });
   } catch (e) {
-    console.error(`[override] Failed to parse original ${basename}:`, e.message);
+    console.error(
+      `[override] Failed to parse original ${basename}:`,
+      e.message,
+    );
     return source;
   }
 
   const info = findDefaultExportClass(ast);
   if (!info) {
-    console.warn(`[override] ${basename}: no default-exported class found, skipping merge`);
+    console.warn(
+      `[override] ${basename}: no default-exported class found, skipping merge`,
+    );
     return source;
   }
 
   const className = info.classNode.id ? info.classNode.id.name : null;
   if (!className) {
-    console.warn(`[override] ${basename}: anonymous default-exported class, skipping merge`);
+    console.warn(
+      `[override] ${basename}: anonymous default-exported class, skipping merge`,
+    );
     return source;
   }
 
@@ -496,7 +580,8 @@ function macroMergeLoader(source, options) {
   } else {
     const exportStart = info.exportNode.start;
     const exportEnd = info.exportNode.end;
-    newSource = source.slice(0, exportStart).trimEnd() + "\n" + source.slice(exportEnd);
+    newSource =
+      source.slice(0, exportStart).trimEnd() + "\n" + source.slice(exportEnd);
   }
 
   const mergedName = `${className}__Altair`;
@@ -505,8 +590,13 @@ function macroMergeLoader(source, options) {
   const hasGameImport = /import\s+_Game\s+from/.test(source);
   let snippet = "\n/* --- ALTAIR MACRO OVERRIDES --- */\n";
   if (!hasGameImport) {
-    const gameModulePath = path.resolve(options.rootDir, "src-client/app/Engine/Game/Game");
-    let relPath = path.relative(path.dirname(this.resourcePath), gameModulePath).replace(/\\/g, "/");
+    const gameModulePath = path.resolve(
+      options.rootDir,
+      "src-client/app/Engine/Game/Game",
+    );
+    let relPath = path
+      .relative(path.dirname(this.resourcePath), gameModulePath)
+      .replace(/\\/g, "/");
     if (!relPath.startsWith(".")) relPath = "./" + relPath;
     snippet = `import _Game from "${relPath}";\n` + snippet;
   }
@@ -547,7 +637,9 @@ function macroMergeLoader(source, options) {
   const relOrig = path.relative(options.rootDir, this.resourcePath);
   const parts = [];
   if (entry.methods && entry.methods.length > 0) {
-    parts.push(`overrides: ${entry.methods.map((m) => m.methodName).join(", ")}`);
+    parts.push(
+      `overrides: ${entry.methods.map((m) => m.methodName).join(", ")}`,
+    );
   }
   if (hasBootstrap) {
     parts.push("bootstrap");
@@ -649,13 +741,25 @@ function transformGameRefs(source) {
   const replacements = [];
   walkAST(ast.program, (node, parent, parentKey) => {
     if (node.type !== "Identifier" || node.name !== "game") return;
-    if (parent.type === "MemberExpression" && parentKey === "property" && !parent.computed) return;
-    if (parent.type === "Property" && parentKey === "key" && !parent.computed) return;
+    if (
+      parent.type === "MemberExpression" &&
+      parentKey === "property" &&
+      !parent.computed
+    )
+      return;
+    if (parent.type === "Property" && parentKey === "key" && !parent.computed)
+      return;
     if (parent.type === "ClassMethod" && parentKey === "key") return;
-    if (parent.type === "ImportSpecifier" || parent.type === "ImportDefaultSpecifier" || parent.type === "ImportNamespaceSpecifier") return;
+    if (
+      parent.type === "ImportSpecifier" ||
+      parent.type === "ImportDefaultSpecifier" ||
+      parent.type === "ImportNamespaceSpecifier"
+    )
+      return;
     if (parent.type === "VariableDeclarator" && parentKey === "id") return;
     if (parent.type === "FunctionDeclaration" && parentKey === "params") return;
-    if (parent.type === "ArrowFunctionExpression" && parentKey === "params") return;
+    if (parent.type === "ArrowFunctionExpression" && parentKey === "params")
+      return;
     if (parent.type === "FunctionExpression" && parentKey === "params") return;
     if (parent.type === "ClassMethod" && parentKey === "params") return;
     replacements.push({ start: node.start - 1, end: node.end - 1 });
@@ -666,7 +770,10 @@ function transformGameRefs(source) {
   replacements.sort((a, b) => b.start - a.start);
   let transformed = source;
   for (const { start, end } of replacements) {
-    transformed = transformed.slice(0, start) + "_Game.currentGame" + transformed.slice(end);
+    transformed =
+      transformed.slice(0, start) +
+      "_Game.currentGame" +
+      transformed.slice(end);
   }
   return transformed;
 }
@@ -683,7 +790,8 @@ function walkAST(node, visitor, parent = null, parentKey = null) {
   if (node.type) {
     visitor(node, parent, parentKey);
     for (const key of Object.keys(node)) {
-      if (key === "type" || key === "start" || key === "end" || key === "loc") continue;
+      if (key === "type" || key === "start" || key === "end" || key === "loc")
+        continue;
       walkAST(node[key], visitor, node, key);
     }
   }
