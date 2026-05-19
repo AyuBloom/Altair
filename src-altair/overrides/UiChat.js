@@ -6,9 +6,7 @@ export default class UiChatOverride {
     this.componentElem.classList.add("altair-chat");
   }
 
-  __altairBind() {
-
-  }
+  __altairBind() {}
 
   /*
    * example method

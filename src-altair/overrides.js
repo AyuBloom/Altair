@@ -1,7 +1,5 @@
 import UiChatOverride from "./overrides/UiChat";
 
-const overrides = [
-    [game.ui.components.Chat, UiChatOverride],
-];
+const overrides = [[game.ui.components.Chat, UiChatOverride]];
 
 export default overrides;
