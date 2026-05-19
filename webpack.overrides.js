@@ -1,20 +1,29 @@
 /**
- * Altair Override System — Class-Merging Webpack Loader
+ * Altair Override System — Macro-based Webpack Loader
  *
- * Scans src-altair/overrides/ for JS files and merges them with matching
- * components in src-client/app/ by filename. The override class's methods
- * are grafted onto a subclass of the original, producing a merged export.
+ * Scans src-altair/ recursively for JS files containing macro comments:
  *
- * Convention:
- *   - The override file exports a default class with methods to add/override.
- *   - If the override has a constructor, rename it to `__altairInit`.
- *     The loader will call it after the original's constructor via super().
- *   - Use bare `game` to reference `_Game.currentGame` — the loader transforms
- *     it automatically and injects the import.
+ *   /* @override Game/Path/To/Component *​/
+ *     Overrides a method on an existing component class.
  *
- * Example: placing UiChat.js in src-altair/overrides/ will merge it with
- * src-client/app/Game/Ui/UiChat.js — the merged class extends the original
- * and overlays the override's prototype methods and statics.
+ *   /* @script *​/
+ *     Registers a game.script module (e.g. game.script.AHRC = {...}).
+ *
+ *   /* @options *​/
+ *     Registers game.options.options defaults.
+ *
+ *   /* @helper *​/
+ *     Registers a utility function/class on game.helpers.
+ *
+ *   /* @init *​/
+ *     Runs initialization code after the game is fully set up.
+ *
+ * The loader extracts annotated code, transforms `game` references to
+ * `_Game.currentGame`, and injects everything into the client build.
+ *
+ * @override grafts methods onto component subclass prototypes.
+ * @script/@options/@helper/@init are collected into a bootstrap method
+ * on the Game class that runs at the end of Game.init().
  */
 const fs = require("fs");
 const path = require("path");
@@ -75,13 +84,22 @@ function findDefaultExportClass(ast) {
   return null;
 }
 
+// ---------------------------------------------------------------------------
+// Macro extraction — scans source files for all macro annotations
+// ---------------------------------------------------------------------------
+
+const MACRO_PATTERN = /^[\s*]*@(override|replace|script|options|helper|init)(?:\s+(.+?))?\s*$/;
+
 /**
- * Check whether the override class defines __altairInit (post-constructor hook).
+ * Parse a single source file and extract all macro-annotated code.
+ *
+ * Returns:
+ *   { overrides: [...], scripts: [...], options: [...], helpers: [...], inits: [...] }
  */
-function overrideHasInit(overrideSource, overridePath) {
+function extractMacrosFromSource(source, filePath) {
   let ast;
   try {
-    ast = parse(overrideSource, {
+    ast = parse(source, {
       sourceType: "module",
       plugins: [
         "classProperties",
@@ -90,27 +108,199 @@ function overrideHasInit(overrideSource, overridePath) {
       ],
     });
   } catch (e) {
-    console.error(
-      `[override] Failed to parse override ${path.basename(overridePath)}:`,
-      e.message,
+    console.warn(
+      `[macro] Failed to parse ${path.basename(filePath)}: ${e.message}`,
     );
-    return false;
+    return { overrides: [], scripts: [], options: [], helpers: [], inits: [] };
   }
 
-  const info = findDefaultExportClass(ast);
-  if (!info) return false;
+  const result = { overrides: [], scripts: [], options: [], helpers: [], inits: [] };
 
-  for (const member of info.classNode.body.body) {
-    if (
-      member.type === "ClassMethod" &&
-      member.key &&
-      member.key.type === "Identifier" &&
-      member.key.name === "__altairInit"
-    ) {
-      return true;
+  for (const node of ast.program.body) {
+    if (!node.leadingComments || node.leadingComments.length === 0) continue;
+
+    for (const comment of node.leadingComments) {
+      const match = comment.value.trim().match(MACRO_PATTERN);
+      if (!match) continue;
+
+      const macroType = match[1];
+      const macroArg = match[2] ? match[2].trim() : null;
+
+      switch (macroType) {
+        case "override":
+        case "replace":
+          extractOverrideMacro(node, macroType, macroArg, source, filePath, result);
+          break;
+        case "script":
+          extractScriptMacro(node, source, filePath, result);
+          break;
+        case "options":
+          extractOptionsMacro(node, source, filePath, result);
+          break;
+        case "helper":
+          extractHelperMacro(node, source, filePath, result);
+          break;
+        case "init":
+          extractInitMacro(node, source, filePath, result);
+          break;
+      }
     }
   }
-  return false;
+
+  return result;
+}
+
+function extractOverrideMacro(node, macroType, componentPath, source, filePath, result) {
+  if (!componentPath) {
+    console.warn(`[macro] @${macroType} in ${path.basename(filePath)} missing component path — skipping`);
+    return;
+  }
+  if (node.type !== "ExpressionStatement" || node.expression.type !== "AssignmentExpression") {
+    console.warn(`[macro] @${macroType} in ${path.basename(filePath)} is not followed by an assignment — skipping`);
+    return;
+  }
+  const left = node.expression.left;
+  let methodName = null;
+  if (left.type === "MemberExpression" && left.property) {
+    methodName = left.property.name || left.property.value;
+  }
+  if (!methodName) {
+    console.warn(`[macro] @${macroType} in ${path.basename(filePath)}: could not extract method name — skipping`);
+    return;
+  }
+  const rhs = node.expression.right;
+  result.overrides.push({
+    componentPath,
+    methodName,
+    functionSource: source.slice(rhs.start, rhs.end),
+    macroType,
+    sourceFile: filePath,
+  });
+}
+
+function extractScriptMacro(node, source, filePath, result) {
+  // Expects: game.script.X = { ... };
+  if (node.type !== "ExpressionStatement" || node.expression.type !== "AssignmentExpression") {
+    console.warn(`[macro] @script in ${path.basename(filePath)} is not followed by an assignment — skipping`);
+    return;
+  }
+  const left = node.expression.left;
+  // Extract the module name from game.script.X
+  let scriptName = null;
+  if (left.type === "MemberExpression" && left.property) {
+    scriptName = left.property.name || left.property.value;
+  }
+  if (!scriptName) {
+    console.warn(`[macro] @script in ${path.basename(filePath)}: could not extract script name — skipping`);
+    return;
+  }
+  const rhs = node.expression.right;
+  result.scripts.push({
+    name: scriptName,
+    source: source.slice(rhs.start, rhs.end),
+    sourceFile: filePath,
+  });
+}
+
+function extractOptionsMacro(node, source, filePath, result) {
+  // Expects: game.options.options = { ... };
+  if (node.type !== "ExpressionStatement" || node.expression.type !== "AssignmentExpression") {
+    console.warn(`[macro] @options in ${path.basename(filePath)} is not followed by an assignment — skipping`);
+    return;
+  }
+  const rhs = node.expression.right;
+  result.options.push({
+    source: source.slice(rhs.start, rhs.end),
+    sourceFile: filePath,
+  });
+}
+
+function extractHelperMacro(node, source, filePath, result) {
+  // Expects: const/let/var X = ...; OR function X() {} OR class X {}
+  let helperName = null;
+  let helperSource = null;
+
+  if (node.type === "VariableDeclaration") {
+    const decl = node.declarations[0];
+    if (decl && decl.id && decl.id.type === "Identifier") {
+      helperName = decl.id.name;
+      // Extract the initializer source
+      if (decl.init) {
+        helperSource = source.slice(decl.init.start, decl.init.end);
+      }
+    }
+  } else if (node.type === "FunctionDeclaration" && node.id) {
+    helperName = node.id.name;
+    helperSource = source.slice(node.start, node.end);
+  } else if (node.type === "ClassDeclaration" && node.id) {
+    helperName = node.id.name;
+    helperSource = source.slice(node.start, node.end);
+  }
+
+  if (!helperName || !helperSource) {
+    console.warn(`[macro] @helper in ${path.basename(filePath)}: could not extract helper — skipping`);
+    return;
+  }
+
+  result.helpers.push({
+    name: helperName,
+    source: helperSource,
+    kind: node.type,
+    sourceFile: filePath,
+  });
+}
+
+function extractInitMacro(node, source, filePath, result) {
+  // Extract the full statement source
+  result.inits.push({
+    source: source.slice(node.start, node.end),
+    sourceFile: filePath,
+  });
+}
+
+/**
+ * Scan an entire directory recursively for macro annotations.
+ */
+function extractAllMacros(dir) {
+  const all = { overrides: [], scripts: [], options: [], helpers: [], inits: [] };
+  const sourceFiles = new Set();
+
+  for (const filePath of findJsFiles(dir)) {
+    const source = fs.readFileSync(filePath, "utf8");
+    const macros = extractMacrosFromSource(source, filePath);
+
+    const hasAny = macros.overrides.length + macros.scripts.length +
+      macros.options.length + macros.helpers.length + macros.inits.length > 0;
+    if (hasAny) sourceFiles.add(filePath);
+
+    all.overrides.push(...macros.overrides);
+    all.scripts.push(...macros.scripts);
+    all.options.push(...macros.options);
+    all.helpers.push(...macros.helpers);
+    all.inits.push(...macros.inits);
+  }
+
+  // Group overrides by component path → basename
+  const overridesByComponent = new Map();
+  for (const o of all.overrides) {
+    const key = o.componentPath;
+    if (!overridesByComponent.has(key)) overridesByComponent.set(key, []);
+    overridesByComponent.get(key).push({
+      methodName: o.methodName,
+      functionSource: o.functionSource,
+      macroType: o.macroType,
+      sourceFile: o.sourceFile,
+    });
+  }
+
+  return {
+    overridesByComponent,
+    scripts: all.scripts,
+    options: all.options,
+    helpers: all.helpers,
+    inits: all.inits,
+    sourceFiles,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -118,46 +308,79 @@ function overrideHasInit(overrideSource, overridePath) {
 // ---------------------------------------------------------------------------
 
 function createOverridePlugin(rootDir) {
-  const overridesDir = path.resolve(rootDir, "src-altair/overrides");
+  const altairDir = path.resolve(rootDir, "src-altair");
   const clientAppDir = path.resolve(rootDir, "src-client/app");
 
-  const overridesByName = {};
-  for (const file of findJsFiles(overridesDir)) {
-    overridesByName[path.basename(file)] = path.resolve(file);
+  // Extract all macros from src-altair/ recursively
+  const macros = extractAllMacros(altairDir);
+
+  // Build overridesByBasename for @override merging
+  const overridesByBasename = {};
+  for (const [componentPath, methods] of macros.overridesByComponent) {
+    const basename = path.basename(componentPath) + ".js";
+    if (!overridesByBasename[basename]) {
+      overridesByBasename[basename] = { componentPath, methods: [] };
+    }
+    overridesByBasename[basename].methods.push(...methods);
   }
+
+  // Check if we have bootstrap macros (@script, @options, @helper, @init)
+  const hasBootstrap = macros.scripts.length > 0 || macros.options.length > 0 ||
+    macros.helpers.length > 0 || macros.inits.length > 0;
+
+  if (hasBootstrap) {
+    // Add Game.js as a merge target for the bootstrap
+    if (!overridesByBasename["Game.js"]) {
+      overridesByBasename["Game.js"] = { componentPath: "Engine/Game/Game", methods: [] };
+    }
+    overridesByBasename["Game.js"].bootstrap = {
+      scripts: macros.scripts,
+      options: macros.options,
+      helpers: macros.helpers,
+      inits: macros.inits,
+    };
+  }
+
+  const macroSourceFiles = Array.from(macros.sourceFiles);
 
   const altairStylesPath = path.resolve(rootDir, "src-altair/styles/index.css");
   const clientCssPath = path.resolve(rootDir, "src-client/app.css");
 
   return {
     apply(compiler) {
-      const jsOverrideCount = Object.keys(overridesByName).length;
+      const overrideCount = Array.from(macros.overridesByComponent.values())
+        .reduce((sum, arr) => sum + arr.length, 0);
       const hasStyles = fs.existsSync(altairStylesPath);
+      const hasMacros = overrideCount > 0 || hasBootstrap;
 
-      if (jsOverrideCount === 0 && !hasStyles) return;
+      if (!hasMacros && !hasStyles) return;
 
-      if (jsOverrideCount > 0) {
-        console.log(
-          `[AltairOverrides] Found ${jsOverrideCount} JS override(s).`,
-        );
+      if (hasMacros) {
+        // Log override macros
+        if (overrideCount > 0) {
+          console.log(`[AltairOverrides] Found ${overrideCount} @override macro(s):`);
+          for (const [comp, methods] of macros.overridesByComponent) {
+            console.log(`  → ${comp}: ${methods.map((m) => m.methodName).join(", ")}`);
+          }
+        }
 
-        // Loader 1: Transform override files (game → _Game.currentGame)
-        compiler.options.module.rules.push({
-          test: /\.js$/,
-          include: overridesDir,
-          enforce: "pre",
-          use: [
-            {
-              loader: __filename,
-              options: {
-                mode: "transform",
-                rootDir,
-              },
-            },
-          ],
-        });
+        // Log bootstrap macros
+        if (hasBootstrap) {
+          const counts = [];
+          if (macros.scripts.length) counts.push(`${macros.scripts.length} @script`);
+          if (macros.options.length) counts.push(`${macros.options.length} @options`);
+          if (macros.helpers.length) counts.push(`${macros.helpers.length} @helper`);
+          if (macros.inits.length) counts.push(`${macros.inits.length} @init`);
+          console.log(`[AltairOverrides] Found bootstrap macros: ${counts.join(", ")}`);
+          if (macros.scripts.length) {
+            console.log(`  → scripts: ${macros.scripts.map((s) => s.name).join(", ")}`);
+          }
+          if (macros.helpers.length) {
+            console.log(`  → helpers: ${macros.helpers.map((h) => h.name).join(", ")}`);
+          }
+        }
 
-        // Loader 2: Merge override classes into original components
+        // Loader: Merge macros into original components (and Game.js for bootstrap)
         compiler.options.module.rules.push({
           test: /\.js$/,
           include: clientAppDir,
@@ -166,8 +389,9 @@ function createOverridePlugin(rootDir) {
             {
               loader: __filename,
               options: {
-                mode: "merge",
-                overridesByName,
+                mode: "macro-merge",
+                overridesByBasename,
+                macroSourceFiles,
                 rootDir,
               },
             },
@@ -175,11 +399,9 @@ function createOverridePlugin(rootDir) {
         });
       }
 
-      // Loader 3: Merge altair CSS into the original app.css
+      // Loader: Merge altair CSS into the original app.css
       if (hasStyles) {
-        console.log(
-          `[AltairOverrides] Found CSS override: src-altair/styles/index.css`,
-        );
+        console.log(`[AltairOverrides] Found CSS override: src-altair/styles/index.css`);
         compiler.options.module.rules.push({
           test: /app\.css$/,
           include: path.dirname(clientCssPath),
@@ -206,10 +428,8 @@ function createOverridePlugin(rootDir) {
 function altairLoader(source) {
   const options = this.getOptions();
 
-  if (options.mode === "transform")
-    return transformOverrideSource.call(this, source, options);
-  if (options.mode === "merge")
-    return mergeOverrideClass.call(this, source, options);
+  if (options.mode === "macro-merge")
+    return macroMergeLoader.call(this, source, options);
   if (options.mode === "css")
     return mergeOverrideCss.call(this, source, options);
 
@@ -217,147 +437,27 @@ function altairLoader(source) {
 }
 
 // ---------------------------------------------------------------------------
-// Transform loader — rewrites `game` → `_Game.currentGame` in override files
-// ---------------------------------------------------------------------------
-
-/**
- * Uses @babel/parser to find bare `game` identifiers and replace them with
- * `_Game.currentGame`. Automatically injects `import _Game from "..."` when
- * any replacements are made. AST-based to avoid false positives inside
- * strings, comments, property names, etc.
- */
-function transformOverrideSource(source, options) {
-  let ast;
-  try {
-    ast = parse(source, {
-      sourceType: "module",
-      plugins: [
-        "classProperties",
-        "classPrivateProperties",
-        "classPrivateMethods",
-      ],
-    });
-  } catch (e) {
-    // If parsing fails, skip the transform — babel-loader will report the error
-    return source;
-  }
-
-  // Collect positions of `game` identifiers to replace (in reverse order)
-  const replacements = [];
-  walkAST(ast.program, (node, parent, parentKey) => {
-    if (node.type !== "Identifier" || node.name !== "game") return;
-
-    // Skip: property access like `obj.game`
-    if (
-      parent.type === "MemberExpression" &&
-      parentKey === "property" &&
-      !parent.computed
-    ) {
-      return;
-    }
-
-    // Skip: object key like `{ game: value }`
-    if (parent.type === "Property" && parentKey === "key" && !parent.computed) {
-      return;
-    }
-
-    // Skip: class method name
-    if (parent.type === "ClassMethod" && parentKey === "key") return;
-
-    // Skip: import specifier
-    if (
-      parent.type === "ImportSpecifier" ||
-      parent.type === "ImportDefaultSpecifier" ||
-      parent.type === "ImportNamespaceSpecifier"
-    ) {
-      return;
-    }
-
-    // Skip: variable declaration name (left side of `const game = ...`)
-    if (parent.type === "VariableDeclarator" && parentKey === "id") return;
-
-    // Skip: function parameter name
-    if (parent.type === "FunctionDeclaration" && parentKey === "params") return;
-    if (parent.type === "ArrowFunctionExpression" && parentKey === "params")
-      return;
-    if (parent.type === "FunctionExpression" && parentKey === "params") return;
-    if (parent.type === "ClassMethod" && parentKey === "params") return;
-
-    replacements.push({ start: node.start, end: node.end });
-  });
-
-  if (replacements.length === 0) return source;
-
-  // Apply replacements in reverse order to preserve positions
-  replacements.sort((a, b) => b.start - a.start);
-  let transformed = source;
-  for (const { start, end } of replacements) {
-    transformed =
-      transformed.slice(0, start) +
-      "_Game.currentGame" +
-      transformed.slice(end);
-  }
-
-  // Inject the _Game import
-  const gameModulePath = path.resolve(
-    options.rootDir,
-    "src-client/app/Engine/Game/Game",
-  );
-  let relPath = path
-    .relative(path.dirname(this.resourcePath), gameModulePath)
-    .replace(/\\/g, "/");
-  if (!relPath.startsWith(".")) relPath = "./" + relPath;
-
-  transformed = `import _Game from "${relPath}";\n${transformed}`;
-
-  const basename = path.basename(this.resourcePath);
-  console.log(
-    `[override] Transformed ${replacements.length} \`game\` reference(s) in ${basename}`,
-  );
-
-  return transformed;
-}
-
-/**
- * Simple recursive AST walker. Calls `visitor(node, parent, parentKey)` for
- * every node in the tree.
- */
-function walkAST(node, visitor, parent = null, parentKey = null) {
-  if (!node || typeof node !== "object") return;
-  if (Array.isArray(node)) {
-    node.forEach((child) => walkAST(child, visitor, parent, parentKey));
-    return;
-  }
-  if (node.type) {
-    visitor(node, parent, parentKey);
-    for (const key of Object.keys(node)) {
-      if (key === "type" || key === "start" || key === "end" || key === "loc")
-        continue;
-      walkAST(node[key], visitor, node, key);
-    }
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Merge loader — runs on original components in src-client/app/
+// Macro-merge loader — runs on original components in src-client/app/
 // ---------------------------------------------------------------------------
 
 /**
  * For matched files, this loader:
  *   1. Strips `export default` from the original class
- *   2. Imports the override class
- *   3. Generates a merged subclass that extends the original
- *   4. Copies override prototype methods + statics onto the merged class
+ *   2. Generates a merged subclass that extends the original
+ *   3. For @override: grafts methods onto the subclass prototype
+ *   4. For bootstrap (Game.js): adds an init() override that calls __altairBootstrap()
  *   5. Exports the merged class as default
  */
-function mergeOverrideClass(source, options) {
+function macroMergeLoader(source, options) {
   const basename = path.basename(this.resourcePath);
-  const overridePath = options.overridesByName[basename];
+  const entry = options.overridesByBasename[basename];
 
-  if (!overridePath) return source;
+  if (!entry) return source;
 
-  // Add override file as a watched dependency (for HMR / rebuild)
-  this.addDependency(overridePath);
+  // Add all macro source files as watched dependencies
+  for (const sourceFile of options.macroSourceFiles) {
+    this.addDependency(sourceFile);
+  }
 
   // Parse the original source to find the class
   let ast;
@@ -371,106 +471,230 @@ function mergeOverrideClass(source, options) {
       ],
     });
   } catch (e) {
-    console.error(
-      `[override] Failed to parse original ${basename}:`,
-      e.message,
-    );
+    console.error(`[override] Failed to parse original ${basename}:`, e.message);
     return source;
   }
 
   const info = findDefaultExportClass(ast);
   if (!info) {
-    console.warn(
-      `[override] ${basename}: no default-exported class found, skipping merge`,
-    );
+    console.warn(`[override] ${basename}: no default-exported class found, skipping merge`);
     return source;
   }
 
   const className = info.classNode.id ? info.classNode.id.name : null;
   if (!className) {
-    console.warn(
-      `[override] ${basename}: anonymous default-exported class, skipping merge`,
-    );
+    console.warn(`[override] ${basename}: anonymous default-exported class, skipping merge`);
     return source;
   }
 
-  // Read override to check for constructor
-  const overrideSource = fs.readFileSync(overridePath, "utf8");
-  const hasInit = overrideHasInit(overrideSource, overridePath);
-
-  // --- Transform the source ---
+  // --- Transform the source: strip export default ---
   let newSource = source;
-
   if (info.pattern === 1) {
-    // `export default class Foo { ... }` → `class Foo { ... }`
-    // Replace from the export statement start to the class keyword
     const exportStart = info.exportNode.start;
     const classKeywordIndex = source.indexOf("class", exportStart);
     newSource = source.slice(0, exportStart) + source.slice(classKeywordIndex);
   } else {
-    // `export default Foo;` at the end → remove it
     const exportStart = info.exportNode.start;
     const exportEnd = info.exportNode.end;
-    newSource =
-      source.slice(0, exportStart).trimEnd() + "\n" + source.slice(exportEnd);
+    newSource = source.slice(0, exportStart).trimEnd() + "\n" + source.slice(exportEnd);
   }
-
-  // Normalise override path for import (forward slashes, no backslashes)
-  const importPath = overridePath.replace(/\\/g, "/");
 
   const mergedName = `${className}__Altair`;
 
-  // Build the merge snippet
-  let snippet = "\n/* --- ALTAIR OVERRIDE --- */\n";
-  snippet += `import __AltairOverride from "${importPath}";\n\n`;
-  snippet += `class ${mergedName} extends ${className} {\n`;
-
-  if (hasInit) {
-    snippet += `  constructor(...__args) {\n`;
-    snippet += `    super(...__args);\n`;
-    snippet += `    __AltairOverride.prototype.__altairInit.call(this, ...__args);\n`;
-    snippet += `  }\n`;
+  // Ensure _Game import exists
+  const hasGameImport = /import\s+_Game\s+from/.test(source);
+  let snippet = "\n/* --- ALTAIR MACRO OVERRIDES --- */\n";
+  if (!hasGameImport) {
+    const gameModulePath = path.resolve(options.rootDir, "src-client/app/Engine/Game/Game");
+    let relPath = path.relative(path.dirname(this.resourcePath), gameModulePath).replace(/\\/g, "/");
+    if (!relPath.startsWith(".")) relPath = "./" + relPath;
+    snippet = `import _Game from "${relPath}";\n` + snippet;
   }
 
-  snippet += `}\n\n`;
+  // --- Build the merged subclass ---
+  const hasBootstrap = !!entry.bootstrap;
 
-  // Copy prototype methods (excluding constructor)
-  snippet += `const __overrideProto = Object.getOwnPropertyDescriptors(__AltairOverride.prototype);\n`;
-  snippet += `delete __overrideProto.constructor;\n`;
-  snippet += `delete __overrideProto.__altairInit;\n`;
-  snippet += `Object.defineProperties(${mergedName}.prototype, __overrideProto);\n\n`;
+  if (hasBootstrap) {
+    // Game.js: override init() to call bootstrap after original init
+    snippet += `class ${mergedName} extends ${className} {\n`;
+    snippet += `  init(callback) {\n`;
+    snippet += `    super.init((...__initArgs) => {\n`;
+    snippet += `      this.__altairBootstrap();\n`;
+    snippet += `      callback(...__initArgs);\n`;
+    snippet += `    });\n`;
+    snippet += `  }\n`;
+    snippet += `}\n\n`;
 
-  // Copy static members
-  snippet += `const __overrideStatic = Object.getOwnPropertyDescriptors(__AltairOverride);\n`;
-  snippet += `delete __overrideStatic.prototype;\n`;
-  snippet += `delete __overrideStatic.length;\n`;
-  snippet += `delete __overrideStatic.name;\n`;
-  snippet += `Object.defineProperties(${mergedName}, __overrideStatic);\n\n`;
+    // Generate the bootstrap method
+    snippet += generateBootstrapMethod(mergedName, entry.bootstrap);
+  } else {
+    snippet += `class ${mergedName} extends ${className} {}\n\n`;
+  }
+
+  // Graft @override methods onto prototype
+  if (entry.methods && entry.methods.length > 0) {
+    for (const method of entry.methods) {
+      const transformedBody = transformGameRefs(method.functionSource);
+      snippet += `${mergedName}.prototype.${method.methodName} = ${transformedBody};\n`;
+    }
+    snippet += "\n";
+  }
 
   snippet += `export default ${mergedName};\n`;
-
   newSource += snippet;
 
+  // Log
   const relOrig = path.relative(options.rootDir, this.resourcePath);
-  const relOver = path.relative(options.rootDir, overridePath);
-  console.log(`[override] Merged ${relOrig} ← ${relOver}`);
+  const parts = [];
+  if (entry.methods && entry.methods.length > 0) {
+    parts.push(`overrides: ${entry.methods.map((m) => m.methodName).join(", ")}`);
+  }
+  if (hasBootstrap) {
+    parts.push("bootstrap");
+  }
+  console.log(`[override] Merged into ${relOrig}: ${parts.join("; ")}`);
 
   return newSource;
+}
+
+// ---------------------------------------------------------------------------
+// Bootstrap code generation — builds __altairBootstrap for the Game class
+// ---------------------------------------------------------------------------
+
+/**
+ * Generates the __altairBootstrap method that runs after Game.init().
+ * Execution order: helpers → options → scripts → inits
+ */
+function generateBootstrapMethod(mergedName, bootstrap) {
+  let body = "";
+
+  // --- Helpers ---
+  if (bootstrap.helpers.length > 0) {
+    body += "  // --- @helper ---\n";
+    body += "  _Game.currentGame.helpers = _Game.currentGame.helpers || {};\n";
+    for (const helper of bootstrap.helpers) {
+      const transformed = transformGameRefs(helper.source);
+      if (helper.kind === "VariableDeclaration") {
+        // const measureDistance = (...) => {...}  →  game.helpers.measureDistance = (...)
+        body += `  _Game.currentGame.helpers.${helper.name} = ${transformed};\n`;
+      } else if (helper.kind === "FunctionDeclaration") {
+        // function foo() {}  →  game.helpers.foo = function foo() {}
+        // The source already includes the full function declaration
+        body += `  _Game.currentGame.helpers.${helper.name} = ${transformed};\n`;
+      } else if (helper.kind === "ClassDeclaration") {
+        // class Foo {}  →  game.helpers.Foo = class Foo {}
+        body += `  _Game.currentGame.helpers.${helper.name} = ${transformed};\n`;
+      }
+    }
+    body += "\n";
+  }
+
+  // --- Options ---
+  if (bootstrap.options.length > 0) {
+    body += "  // --- @options ---\n";
+    body += "  _Game.currentGame.options = _Game.currentGame.options || {};\n";
+    for (const opt of bootstrap.options) {
+      const transformed = transformGameRefs(opt.source);
+      body += `  _Game.currentGame.options.options = ${transformed};\n`;
+    }
+    body += "\n";
+  }
+
+  // --- Scripts ---
+  if (bootstrap.scripts.length > 0) {
+    body += "  // --- @script ---\n";
+    body += "  _Game.currentGame.script = _Game.currentGame.script || {};\n";
+    for (const script of bootstrap.scripts) {
+      const transformed = transformGameRefs(script.source);
+      body += `  _Game.currentGame.script.${script.name} = ${transformed};\n`;
+    }
+    body += "\n";
+  }
+
+  // --- Inits ---
+  if (bootstrap.inits.length > 0) {
+    body += "  // --- @init ---\n";
+    for (const init of bootstrap.inits) {
+      const transformed = transformGameRefs(init.source);
+      body += `  ${transformed}\n`;
+    }
+    body += "\n";
+  }
+
+  return `${mergedName}.prototype.__altairBootstrap = function() {\n${body}};\n\n`;
+}
+
+// ---------------------------------------------------------------------------
+// game → _Game.currentGame transform (AST-based)
+// ---------------------------------------------------------------------------
+
+/**
+ * Transform bare `game` identifiers to `_Game.currentGame` in source text.
+ */
+function transformGameRefs(source) {
+  let ast;
+  try {
+    ast = parse(`(${source})`, {
+      sourceType: "module",
+      plugins: [
+        "classProperties",
+        "classPrivateProperties",
+        "classPrivateMethods",
+      ],
+    });
+  } catch (e) {
+    return source.replace(/\bgame\b/g, "_Game.currentGame");
+  }
+
+  const replacements = [];
+  walkAST(ast.program, (node, parent, parentKey) => {
+    if (node.type !== "Identifier" || node.name !== "game") return;
+    if (parent.type === "MemberExpression" && parentKey === "property" && !parent.computed) return;
+    if (parent.type === "Property" && parentKey === "key" && !parent.computed) return;
+    if (parent.type === "ClassMethod" && parentKey === "key") return;
+    if (parent.type === "ImportSpecifier" || parent.type === "ImportDefaultSpecifier" || parent.type === "ImportNamespaceSpecifier") return;
+    if (parent.type === "VariableDeclarator" && parentKey === "id") return;
+    if (parent.type === "FunctionDeclaration" && parentKey === "params") return;
+    if (parent.type === "ArrowFunctionExpression" && parentKey === "params") return;
+    if (parent.type === "FunctionExpression" && parentKey === "params") return;
+    if (parent.type === "ClassMethod" && parentKey === "params") return;
+    replacements.push({ start: node.start - 1, end: node.end - 1 });
+  });
+
+  if (replacements.length === 0) return source;
+
+  replacements.sort((a, b) => b.start - a.start);
+  let transformed = source;
+  for (const { start, end } of replacements) {
+    transformed = transformed.slice(0, start) + "_Game.currentGame" + transformed.slice(end);
+  }
+  return transformed;
+}
+
+/**
+ * Simple recursive AST walker.
+ */
+function walkAST(node, visitor, parent = null, parentKey = null) {
+  if (!node || typeof node !== "object") return;
+  if (Array.isArray(node)) {
+    node.forEach((child) => walkAST(child, visitor, parent, parentKey));
+    return;
+  }
+  if (node.type) {
+    visitor(node, parent, parentKey);
+    for (const key of Object.keys(node)) {
+      if (key === "type" || key === "start" || key === "end" || key === "loc") continue;
+      walkAST(node[key], visitor, node, key);
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
 // CSS merge loader — appends altair styles to src-client/app.css
 // ---------------------------------------------------------------------------
 
-/**
- * Appends the contents of src-altair/styles/index.css to the original
- * app.css at build time. The altair styles file is added as a watched
- * dependency so changes trigger a rebuild.
- */
 function mergeOverrideCss(source, options) {
   const altairStylesPath = options.altairStylesPath;
-
-  // Watch the altair styles file for changes
   this.addDependency(altairStylesPath);
 
   const altairCss = fs.readFileSync(altairStylesPath, "utf8").trim();

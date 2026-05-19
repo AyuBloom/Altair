@@ -1,27 +1,16 @@
 import "styles/index.js";
-import overrides from "./overrides.js";
 
-/* overriding the original components with additional functions
- * special methods:
- * - __altairInit: self-explanatory
- * - __altairBind: only runs on script, use this to remove old bindings
+/* Overrides are now handled at compile time via macro annotations.
+ * See webpack.overrides.js for details.
+ *
+ * To override a component method, annotate it in any src-altair/ file:
+ *   /* @override Game/Ui/UiIntro *​/
+ *   game.ui.components.Intro.hideLoadingScreen = function () { ... };
  */
-for (const [original, override] of overrides) {
-  let init;
-  for (const key of Object.getOwnPropertyNames(override.prototype)) {
-    if (key === "constructor") continue;
 
-    if (key === "__altairInit") {
-      init = override.prototype[key];
-    } else {
-      original[key] = override.prototype[key];
-    }
-  }
-  init.call(original);
-}
-
-/* cute console msg :) */
-
+/**
+ * cute console msg :) 
+ */
 setTimeout(() => {
   console.clear();
 
@@ -54,5 +43,5 @@ setTimeout(() => {
   };
 
   img.src =
-    "https://raw.githubusercontent.com/AyuBloom/Altair/refs/heads/main/assets/altair_banner.png";
+    "https://raw.githubusercontent.com/AyuBloom/Altair/refs/heads/main/assets/altair_banner_compressed.png";
 }, 1000);
